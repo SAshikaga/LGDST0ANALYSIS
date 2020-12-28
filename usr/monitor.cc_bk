@@ -1,0 +1,149 @@
+#include <LGBasic.h>
+#include <LGDST0ANA.h>
+#include <TROOT.h>
+#include <ROOT/TSeq.hxx>
+#include <stdio.h>
+#include <iostream>
+#include <TH2.h>
+#include <TFile.h>
+#include <TTree.h>
+#include <TProfile.h>
+#include "E16DST/E16DST_DST0.hh"
+
+#include <LGGeometry.h>
+
+using namespace std;
+
+int LG1stAna(string inputfile, string outputfile){
+	ROOT::EnableImplicitMT(10);
+	LGDST0ANA lgana;
+	lgana.MakeMap();
+	lgana.SetMap();
+	LGGeometry lggeo;
+	lggeo.MakeLGGlobal();
+	cout<<"ana start"<<endl;
+
+	E16DST_DST0 *dst0 = new E16DST_DST0();
+	if(!dst0->Open(inputfile, E16DST_DST0::ReadMode)){
+         	std::cout << "failed to open file : " << "test.dst0" << std::endl;
+         	return 1;
+        }
+
+	int n_event = 0;	
+
+	TFile* fout = new TFile(outputfile.c_str(),"recreate");
+	fout->SetCompressionLevel(4);
+	TTree* tree = new TTree("tree","tree");
+
+	uint16_t module, block;
+	uint32_t spill, eventinspill, eventid, spillstartid=0;
+	double waveform[Nsample];
+	int peakx, ip;
+	double integral, baseline, peak;
+	double rate, wftype;
+	double globalpos[6];	
+	bool trighit, trackhit, blockhit;
+	double xpoint, trackxpoint;
+	uint64_t time, timeinspill, spillstarttime=0;
+	int ncell = Nsample;
+
+	tree->Branch("Module",&module,"Module/s");
+	tree->Branch("Block",&block,"Block/s");
+        tree->Branch("Time",&time,"Time/l");
+        tree->Branch("TimeInSpill",&timeinspill,"TimeInSpill/l");
+        tree->Branch("Rate",&rate,"Rate/D");
+        // tree->Branch("Trig",&trighit);
+        tree->Branch("Track",&trackhit);
+        tree->Branch("Spill",&spill,"Spill/i");
+        tree->Branch("EventInSpill",&eventinspill,"EventInSpill/i");
+        tree->Branch("Event",&eventid,"Event/i");
+        tree->Branch("WFtype",&wftype,"Wftype/D");
+        tree->Branch("DRS4IP",&ip,"ip/I");
+	tree->Branch("ncell",&ncell,"ncell/I");
+        tree->Branch("Waveform",waveform,"Waveform[ncell]/D");
+        tree->Branch("GlobalPos",globalpos,"GlobalPos[6]");
+
+	tree->Branch("Peak",&peak,"Peak/D");	
+	tree->Branch("PeakX",&peakx,"PeakX/I");	
+	tree->Branch("xpoint",&xpoint,"xpoint/D");	
+	tree->Branch("Baseline",&baseline,"Baseline/D");	
+	tree->Branch("Integral",&integral,"Integral/D");	
+
+	while (dst0->ReadAnEvent() > 0) {
+
+		if (n_event % 1000 == 0){
+			std::cout << "NReadEvents = " << n_event << ", EventID = " << dst0->Event()->EventID() << std::endl;
+			}
+		
+	
+		if(dst0->EventType() == E16DST_DST0EventType::SpillStart){
+		      E16DST_DST0SpillStartEvent *event = dynamic_cast<E16DST_DST0SpillStartEvent *>(dst0->Event());
+      		      if (event == nullptr) {
+      	 		continue;
+     			 }
+		      lgana.SetSpillInTime(event);
+      		      continue;
+        		}
+
+
+		if (dst0->EventType() != E16DST_DST0EventType::Physics) {
+         		continue;
+     			 }
+
+      		E16DST_DST0PhysicsEvent *event = dynamic_cast<E16DST_DST0PhysicsEvent*>(dst0->Event());
+	
+		//int n_scaler= event->ScalerLG().NumberOfHits();
+			
+		eventid = event->EventID();
+		lgana.SetRate(event);
+		lgana.SetTrigHit(event);
+		
+		spill = event->SpillID();
+        	time = event->TimeStamp();
+		timeinspill = lgana.GetSpillInTime(spill,time); 	
+		
+		auto& lghit = event->LG();
+		int n_lghit = lghit.NumberOfHits();
+		
+
+		for(int i=0;i<n_lghit;++i){
+		
+			auto& hit = lghit.Hit(i);
+			module = hit.ModuleID();
+        		block = hit.BlockID();
+			blockhit = lgana.GetLGHit(module,block,&xpoint);	
+			
+			if(blockhit==false||abs(xpoint)>100){
+				continue;
+			}
+			//cout<<xpoint<<endl;
+
+			*(lgana.eventtime) = xpoint;
+			auto lg_analysed = lgana.LGGet1stAna(&hit, waveform);	
+			trackhit = lgana.GetTrack(module,block,&trackxpoint);
+	
+			ip = lg_analysed->IP;
+			wftype = lg_analysed->WF_TYPE;
+			peak = lg_analysed->Peak;
+			peakx = lg_analysed->PeakX;
+			baseline = lg_analysed->Baseline;
+			integral = lg_analysed->Integral;
+			lggeo.GetGlobalPosition(module, block, globalpos);
+			tree->Fill();
+		
+			}
+			n_event++;
+		}
+
+
+	fout->Write();
+	return 0;
+	}
+
+int main(int argc, char* argv[]){
+	//string inputfile =  argv[1];
+	string inputfile =  "/e16/u/e16daq/Run0a/offline/data200828/merge/003422_srs.gtr.trg.lg.dst0";
+	string outputfile = "test2.root";//argv[2];	
+	LG1stAna(inputfile, outputfile);
+	return 0;
+	}

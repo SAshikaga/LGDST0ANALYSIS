@@ -1,0 +1,81 @@
+#include <vector>
+#include "E16DST/E16DST_DST0.hh"
+#include "LGBasic.h"
+#include "LGDST0ANA.h"
+#include "unordered_map"
+#include <iostream>
+
+using namespace std;
+
+void LGDST0ANA::LGWFAnalysedValue(unordered_map<string, LGBasic::ch_pp>* lgdatamap, E16DST_DST0PhysicsEvent *event){
+
+	//start_x = 130;
+	//end_x = 160;
+
+      	LGBasic lgbasic;	
+
+  	lgqdc lgqdc;	
+	LGDST0ANA lgdata;
+
+	int noh = event->LG().NumberOfHits();
+	//int Nread = end_x - start_x;
+	
+	vector<double> dat = {0};
+	dat.resize(Nsample);
+	uint16_t module, block;
+
+	for(int i=0; i<noh; i++){
+            E16DST_DST0LGHit &hit = event->LG().Hit(i);
+            module = hit.ModuleID();
+            block = hit.BlockID();
+
+
+	    string key = to_string(module) + to_string(block);
+	
+	    double wftype = 0;
+//	    unordered_map<string, lgspec> lgspmap = static_cast< unordered_map<string, lgspec> > lgdatamap; 
+	    auto specmap = lgbasic.GetSpec(lgdatamap, module, block);	
+	    //std::cout<<key<<specmap.WF_TYPE<<std::endl;
+	    
+	    if(specmap.WF_TYPE==0){
+		wftype = 0.44;
+		}
+	    if(specmap.WF_TYPE==1){
+                wftype = 0.27;
+	   	//std::cout<<"detect!!"<<key<<" "<<wftype<<std::endl;
+                }
+
+	for(int j=0; j<Nsample; j++){
+		dat[j] = hit.Waveform()[j]*wftype;
+	}	
+ 
+	int peak_can = 0;
+	int peakx_can = 0;
+	double baseline_can = 0;
+	double integral_can = 0;
+	//std::cout<<dat[120]<<" "<<dat[150]<<std::endl;
+	lgdata.LGWFPeak(dat, &peak_can, &peakx_can);		
+	lgdata.LGWFBaseline(dat, peakx_can, &baseline_can);	
+	lgdata.LGWFIntegral(dat, peakx_can, baseline_can, &integral_can);
+	
+	lgqdc.Module = module;
+	lgqdc.Block = block;
+	lgqdc.Peak = peak_can;
+	lgqdc.PeakX = peakx_can;
+	lgqdc.Baseline = baseline_can;
+	lgqdc.Integral = integral_can;
+
+	//std::cout<<key<<" "<<lgqdc.Peak<<" "<<lgqdc.Integral<<std::endl;
+	LGwfana[key] = lgqdc;	
+//	auto test = LGwfana[key];
+//	std::cout<<key<<" "<<test.Peak<<" "<<lgqdc.Peak<<std::endl;	
+/*	fpeak[key]=peak_can - baseline_can;
+	fpeakx[key]=peakx_can;
+	fbaseline[key]=baseline_can;
+	fintegral[key]=integral_can;*/
+					
+	}
+
+	lgdata.Set1stAna(&LGwfana);	
+
+}
